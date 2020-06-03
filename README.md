@@ -7,3 +7,4 @@ Uses MS Azure to automatically give all `<img\>` tags in `html` files an `alt` a
 * Create CLI
 * Move captions.json to central location, or per-project location.
 * License
+* Explore concurrency options
