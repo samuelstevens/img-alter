@@ -6,8 +6,8 @@ import (
 	"io/ioutil"
 	"path/filepath"
 
-	"github.com/samuelstevens/goimglabeler/api"
-	"github.com/samuelstevens/goimglabeler/util"
+	"github.com/samuelstevens/gocaption/api"
+	"github.com/samuelstevens/gocaption/util"
 )
 
 const (
@@ -15,21 +15,24 @@ const (
 	captionFileName = "captions.json"
 )
 
+// Caption is a caption and confidence for a file
 type Caption struct {
-	Hash        string
-	Filename    string
+	hash        string
+	FilePath    string
 	Description string
 	Confidence  float64
 }
 
-type Captions struct {
+type captions struct {
 	lookup   map[string]*Caption
 	filepath string
 }
 
-var captionLookup = Captions{filepath: filepath.Join(captionFileDir, captionFileName)}
+var captionCache *captions
 
+// New returns a new caption for an image.
 func New(imgPath string, prevDescription string, client *api.Client) (*Caption, error) {
+
 	defaultCaption := Caption{Description: prevDescription}
 
 	hash, err := util.HashFile(imgPath)
@@ -38,7 +41,7 @@ func New(imgPath string, prevDescription string, client *api.Client) (*Caption, 
 		return &defaultCaption, err
 	}
 
-	caption, ok := captionLookup.get(hash)
+	caption, ok := captionCache.get(hash)
 
 	if ok {
 		return caption, nil
@@ -67,57 +70,78 @@ func New(imgPath string, prevDescription string, client *api.Client) (*Caption, 
 	}
 
 	c := Caption{
-		Hash:        hash,
-		Filename:    filepath.Base(imgPath),
+		hash:        hash,
+		FilePath:    filepath.Base(imgPath),
 		Description: description,
 		Confidence:  confidence,
 	}
 
-	return &c, captionLookup.set(&c)
+	return &c, captionCache.set(&c)
 }
 
-func (c *Captions) save() error {
-	jsonRep, err := json.Marshal(c)
+func (c *captions) save() error {
+	jsonRep, err := json.MarshalIndent(c.lookup, "", "\t")
 
 	if err != nil {
 		return err
 	}
 
-	return ioutil.WriteFile(c.filepath, jsonRep, 0644)
-
-}
-
-func LoadCaptions() error {
-	jsonRep, err := ioutil.ReadFile(captionLookup.filepath)
+	err = ioutil.WriteFile(c.filepath, jsonRep, 0666)
 
 	if err != nil {
-		return err
-	}
-
-	if len(jsonRep) == 0 {
-		return nil
-	}
-
-	err = json.Unmarshal(jsonRep, &captionLookup.lookup)
-
-	if err != nil {
+		fmt.Println("Saving error")
 		return err
 	}
 
 	return nil
+
 }
 
-func (c *Captions) set(caption *Caption) error {
+func InitializeCache(cacheFilepath string) {
+	if captionCache != nil {
+		return
+	}
+
+	captionCache = &captions{filepath: cacheFilepath}
+
+	captionCache.lookup = loadLookup(captionCache.filepath)
+}
+
+func loadLookup(filepath string) map[string]*Caption {
+	defaultMap := map[string]*Caption{}
+
+	var res map[string]*Caption
+
+	jsonRep, err := ioutil.ReadFile(filepath)
+
+	if err != nil {
+		return defaultMap
+	}
+
+	if len(jsonRep) == 0 {
+		return defaultMap
+	}
+
+	err = json.Unmarshal(jsonRep, &res)
+
+	if err != nil {
+		return defaultMap
+	}
+
+	return res
+}
+
+func (c *captions) set(caption *Caption) error {
 	if caption.Description == "" {
 		return nil
 	}
 
-	c.lookup[caption.Hash] = caption
+	c.lookup[caption.hash] = caption
 
 	return c.save()
 }
 
-func (c *Captions) get(hash string) (*Caption, bool) {
+func (c *captions) get(hash string) (*Caption, bool) {
 	caption, ok := c.lookup[hash]
 
 	return caption, ok

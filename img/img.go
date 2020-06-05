@@ -5,8 +5,9 @@ import (
 	"log"
 	"path/filepath"
 
-	"github.com/samuelstevens/goimglabeler/api"
-	"github.com/samuelstevens/goimglabeler/caption"
+	"github.com/samuelstevens/gocaption/api"
+	"github.com/samuelstevens/gocaption/caption"
+	"github.com/samuelstevens/gocaption/util"
 
 	"golang.org/x/net/html"
 )
@@ -15,11 +16,11 @@ import (
 type ImgTag struct {
 	relativePath string
 	absPath      string
-	caption      *caption.Caption
+	Caption      *caption.Caption
 	attributes   []html.Attribute
 }
 
-func New(tok *html.Token, rootDir string, api *api.Client) *ImgTag {
+func New(tok *html.Token, webpagePath string, api *api.Client) (*ImgTag, error) {
 	// parse token
 	prevDescription := ""
 	relativePath := ""
@@ -36,7 +37,12 @@ func New(tok *html.Token, rootDir string, api *api.Client) *ImgTag {
 		}
 	}
 
-	absPath := filepath.Join(rootDir, relativePath)
+	absPath, err := util.MakeAbsRelativeTo(webpagePath, relativePath)
+
+	if err != nil {
+		log.Fatalf("%s: %s\n", webpagePath, err.Error())
+		return nil, err
+	}
 
 	// get caption
 	caption, err := caption.New(absPath, prevDescription, api)
@@ -47,13 +53,13 @@ func New(tok *html.Token, rootDir string, api *api.Client) *ImgTag {
 
 	// make tag
 	img := ImgTag{
-		relativePath: relativePath,
 		absPath:      absPath,
-		caption:      caption,
+		relativePath: relativePath,
+		Caption:      caption,
 		attributes:   attributes,
 	}
 
-	return &img
+	return &img, nil
 }
 
 func (img *ImgTag) Filename() string {
@@ -61,7 +67,7 @@ func (img *ImgTag) Filename() string {
 }
 
 func (img *ImgTag) String() string {
-	tag := fmt.Sprintf("<img src=\"%s\" alt=\"%s\"", img.relativePath, img.caption.Description)
+	tag := fmt.Sprintf("<img src=\"%s\" alt=\"%s\"", img.relativePath, img.Caption.Description)
 
 	for _, attr := range img.attributes {
 		tag = tag + fmt.Sprintf(" %s=\"%s\"", attr.Key, attr.Val)

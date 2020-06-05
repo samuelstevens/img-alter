@@ -3,6 +3,7 @@ package webpage
 import (
 	"io/ioutil"
 	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -16,22 +17,20 @@ func TestNewWebPage(t *testing.T) {
 	}{
 		{
 			path:       "./test.html",
-			rootDir:    ".",
 			wantedPath: "./test.html",
-			wantedRoot: ".",
 			err:        nil,
 		},
 		{
 			path:       "./test.go",
-			rootDir:    ".",
 			wantedPath: "",
-			wantedRoot: "",
 			err:        &FileTypeError{"./test.go"},
 		},
 	}
 
 	for _, c := range cases {
-		got, err := New(c.path, c.rootDir)
+		got, err := New(c.path)
+
+		wantedPath, _ := filepath.Abs(c.wantedPath)
 
 		if err != nil {
 			if c.err == nil {
@@ -42,19 +41,15 @@ func TestNewWebPage(t *testing.T) {
 				t.Errorf("got error %s; wanted error %s", err.Error(), c.err.Error())
 			}
 		} else {
-			if got.absolutePath != c.wantedPath {
-				t.Errorf("webpage.New(%s, %s).absolutePath == %s, want %s", c.path, c.rootDir, got.absolutePath, c.wantedPath)
-			}
-
-			if got.rootDir != c.wantedRoot {
-				t.Errorf("webpage.New(%s, %s).rootDir == %s, want %s", c.path, c.rootDir, got.rootDir, c.wantedRoot)
+			if got.absolutePath != wantedPath {
+				t.Errorf("webpage.New(%s, %s).absolutePath == %s, want %s", c.path, c.rootDir, got.absolutePath, wantedPath)
 			}
 		}
 	}
 }
 
 func TestCloseNoFile(t *testing.T) {
-	webpage, err := New("./test.html", ".")
+	webpage, err := New("./test.html")
 
 	if err != nil {
 		t.Errorf("Constructor error: %s", err.Error())
@@ -69,7 +64,7 @@ func TestCloseNoFile(t *testing.T) {
 }
 
 func TestCloseTmpFile(t *testing.T) {
-	webpage, err := New("./test.html", ".")
+	webpage, err := New("./test.html")
 
 	if err != nil {
 		t.Errorf("Constructor error: %s", err.Error())
@@ -92,7 +87,7 @@ func TestCloseTmpFile(t *testing.T) {
 }
 
 func TestCloseAlreadyClosed(t *testing.T) {
-	webpage, err := New("./test.html", ".")
+	webpage, err := New("./test.html")
 
 	if err != nil {
 		t.Errorf("Constructor error: %s", err.Error())

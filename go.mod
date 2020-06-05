@@ -1,4 +1,4 @@
-module github.com/samuelstevens/goimglabeler
+module github.com/samuelstevens/gocaption
 
 go 1.13
 

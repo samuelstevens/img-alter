@@ -9,30 +9,40 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/samuelstevens/goimglabeler/api"
-	"github.com/samuelstevens/goimglabeler/img"
+	"github.com/samuelstevens/gocaption/api"
+	"github.com/samuelstevens/gocaption/caption"
+	"github.com/samuelstevens/gocaption/img"
 
 	"golang.org/x/net/html"
 	"golang.org/x/net/html/atom"
 )
 
+// WebPage represents an HTML file that will have its <img/>
+// tags updated with an "alt" attribute
 type WebPage struct {
 	absolutePath string
 	content      *strings.Builder
-	rootDir      string
 	file         *os.File
+	Captions     []*caption.Caption
 }
 
-func New(absolutePath string, rootDir string) (*WebPage, error) {
-	if filepath.Ext(absolutePath) != ".html" {
-		return nil, &FileTypeError{absolutePath}
+// New returns a new WebPage
+func New(path string) (*WebPage, error) {
+	if filepath.Ext(path) != ".html" {
+		return nil, &FileTypeError{path}
+	}
+
+	path, err := filepath.Abs(path)
+
+	if err != nil {
+		return nil, err
 	}
 
 	return &WebPage{
-		absolutePath: absolutePath,
+		absolutePath: path,
 		content:      &strings.Builder{},
-		rootDir:      rootDir,
 		file:         nil,
+		Captions:     []*caption.Caption{},
 	}, nil
 }
 
@@ -68,7 +78,7 @@ func (wp *WebPage) close() error {
 	return nil
 }
 
-func (wp *WebPage) saveContent() error {
+func (wp *WebPage) Write() error {
 	if err := wp.close(); err != nil {
 		return err
 	}
@@ -76,10 +86,9 @@ func (wp *WebPage) saveContent() error {
 	return ioutil.WriteFile(wp.absolutePath, []byte(wp.content.String()), 0644)
 }
 
-// UpdateImgTags updates all <img/> tags in a webpage to have an alt="" attribute,
-// if they don't already.
-// Doesn't update <img></img> tags.
-func (wp *WebPage) UpdateImgTags(client *api.Client) error {
+// LabelImages takes all the <img> in an .html document and adds
+// an "alt" attribute if it is missing.
+func (wp *WebPage) LabelImages(client *api.Client) error {
 	if err := wp.open(); err != nil {
 		return err
 	}
@@ -93,7 +102,7 @@ func (wp *WebPage) UpdateImgTags(client *api.Client) error {
 
 		case html.ErrorToken:
 			if tokenizer.Err() == io.EOF {
-				return wp.saveContent()
+				return nil
 			}
 			return tokenizer.Err()
 
@@ -101,12 +110,19 @@ func (wp *WebPage) UpdateImgTags(client *api.Client) error {
 			t := tokenizer.Token()
 			fmt.Fprintf(wp.content, t.String())
 
-		case html.SelfClosingTagToken:
+		case html.SelfClosingTagToken: // might be <img/> tag
 			t := tokenizer.Token()
 
-			if t.DataAtom == atom.Img || t.DataAtom == atom.Image {
-				imgTag := img.New(&t, wp.rootDir, client)
+			if t.DataAtom == atom.Img || t.DataAtom == atom.Image { // not sure what the difference is
+				imgTag, err := img.New(&t, wp.absolutePath, client)
+
+				if err != nil {
+					return err
+				}
+
 				fmt.Fprintf(wp.content, imgTag.String())
+
+				wp.Captions = append(wp.Captions, imgTag.Caption)
 			} else {
 				fmt.Fprintf(wp.content, t.String())
 			}
