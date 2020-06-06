@@ -33,7 +33,7 @@ func getFileType(filepath string) fileType {
 
 func displayCaption(filepath string, description string, opts *cli.Options) {
 	if !opts.Silent {
-		fmt.Printf("%s: \t\t\t%s\n", filepath, description)
+		fmt.Printf("%s\t%s\n", filepath, description)
 	}
 }
 
