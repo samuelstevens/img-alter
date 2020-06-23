@@ -73,7 +73,7 @@ func (c *Client) Describe(localImagePath string) (*computervision.ImageCaption, 
 	}
 
 	if len(*localImageDescription.Captions) == 0 {
-		return nil, &NoLabelError{localImagePath}
+		return nil, ErrorNoLabel
 	}
 
 	imageCaption := (*localImageDescription.Captions)[0]

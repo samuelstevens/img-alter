@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"path/filepath"
 	files "path/filepath"
 
 	"github.com/samuelstevens/gocaption/api"
@@ -31,14 +32,14 @@ func getFileType(filepath string) fileType {
 	}
 }
 
-func displayCaption(filepath string, description string, opts *cli.Options) {
+func displayCaption(path string, description string, opts *cli.Options) {
 	if !opts.Silent {
-		fmt.Printf("%s\t%s\n", filepath, description)
+		fmt.Printf("%s\t%s\n", filepath.Base(path), description)
 	}
 }
 
-func displayError(filepath string, err error) {
-	log.Printf("Can't caption %s; %s.\n", filepath, err.Error())
+func displayError(path string, err error) {
+	log.Printf("Can't caption %s; %s.\n", filepath.Base(path), err.Error())
 }
 
 func captionHTML(filepath string, opts *cli.Options, client *api.Client) {
@@ -46,18 +47,20 @@ func captionHTML(filepath string, opts *cli.Options, client *api.Client) {
 
 	if err != nil {
 		displayError(filepath, err)
+		return
 	}
 
 	err = page.LabelImages(client)
 
 	if err != nil {
 		displayError(filepath, err)
+		return
 	}
 
 	if opts.Write {
 		err = page.Write()
 		if err != nil {
-			fmt.Printf("Couldn't update files: %s.\n", err.Error())
+			fmt.Printf("Couldn't update file: %s.\n", err.Error())
 		}
 	}
 
@@ -94,6 +97,7 @@ func main() {
 
 			if err != nil {
 				displayError(filepath, err)
+				continue
 			}
 
 			displayCaption(filepath, caption.Description, opts)

@@ -1,8 +1,7 @@
 package webpage
 
 import (
-	"errors"
-	"fmt"
+	"bytes"
 	"io"
 	"io/ioutil"
 	"os"
@@ -11,7 +10,7 @@ import (
 
 	"github.com/samuelstevens/gocaption/api"
 	"github.com/samuelstevens/gocaption/caption"
-	"github.com/samuelstevens/gocaption/img"
+	"github.com/samuelstevens/gocaption/util"
 
 	"golang.org/x/net/html"
 	"golang.org/x/net/html/atom"
@@ -21,10 +20,11 @@ import (
 // tags updated with an "alt" attribute
 type WebPage struct {
 	absolutePath string
-	content      *strings.Builder
-	file         *os.File
+	content      string
 	Captions     []*caption.Caption
 }
+
+type LabelFunc func(imgPath string, prevDescription string) string
 
 // New returns a new WebPage
 func New(path string) (*WebPage, error) {
@@ -40,16 +40,76 @@ func New(path string) (*WebPage, error) {
 
 	return &WebPage{
 		absolutePath: path,
-		content:      &strings.Builder{},
-		file:         nil,
+		content:      "",
 		Captions:     []*caption.Caption{},
 	}, nil
 }
 
-func (wp *WebPage) open() error {
-	if wp.file != nil {
-		return errors.New("already an open file")
+func (wp *WebPage) Write() error {
+	return ioutil.WriteFile(wp.absolutePath, []byte(wp.content), 0644)
+}
+
+func renderNode(n *html.Node) string {
+	var buf bytes.Buffer
+	w := io.Writer(&buf)
+	html.Render(w, n)
+	return buf.String()
+}
+
+// LabelNode recursively searches through an html node
+// and adds an attribute to any image nodes it finds
+func LabelNode(n *html.Node, labelFunc LabelFunc) {
+
+	switch n.Type {
+	case html.DocumentNode, html.ElementNode:
+		if n.DataAtom == atom.Img || n.DataAtom == atom.Image {
+			var imgSrc, imgAlt string
+
+			for _, a := range n.Attr {
+				if a.Key == "src" {
+					imgSrc = a.Val
+				}
+
+				if a.Key == "alt" {
+					imgAlt = a.Val
+				}
+			}
+
+			caption := labelFunc(imgSrc, imgAlt)
+			newAlt := html.Attribute{Key: "alt", Val: caption}
+			newAttr := []html.Attribute{newAlt}
+
+			for _, a := range n.Attr {
+				if a.Key != "alt" {
+					newAttr = append(newAttr, a)
+				}
+			}
+
+			n.Attr = newAttr
+		}
+
+		for child := n.FirstChild; child != nil; child = child.NextSibling {
+			LabelNode(child, labelFunc)
+		}
 	}
+}
+
+// LabelImages takes an unescaped HTML string and returns a new string containing labeled images
+func LabelImages(inputHTML string, labelFunc LabelFunc) (string, error) {
+	doc, err := html.Parse(strings.NewReader(inputHTML))
+
+	if err != nil {
+		return "", err
+	}
+
+	LabelNode(doc, labelFunc)
+
+	return renderNode(doc), nil
+}
+
+// LabelImages takes all the <img> in an .html document and adds
+// an "alt" attribute if it is missing.
+func (wp *WebPage) LabelImages(client *api.Client) error {
 
 	file, err := os.Open(wp.absolutePath)
 
@@ -57,79 +117,37 @@ func (wp *WebPage) open() error {
 		return err
 	}
 
-	wp.file = file
+	defer file.Close()
 
-	return nil
-}
-
-func (wp *WebPage) close() error {
-	if wp.file == nil {
-		return nil
-	}
-
-	err := wp.file.Close()
+	rawDoc, err := ioutil.ReadAll(file)
 
 	if err != nil {
 		return err
 	}
 
-	wp.file = nil
+	updatedDoc, err := LabelImages(string(rawDoc), func(relativeImgPath string, prevDescription string) string {
+		absImgPath, err := util.MakeAbsRelativeTo(wp.absolutePath, relativeImgPath)
+
+		if err != nil {
+			return ""
+		}
+
+		caption, err := caption.New(absImgPath, prevDescription, client)
+
+		if err != nil {
+			return ""
+		}
+
+		wp.Captions = append(wp.Captions, caption)
+
+		return caption.Description
+	})
+
+	if err != nil {
+		return err
+	}
+
+	wp.content = updatedDoc
 
 	return nil
-}
-
-func (wp *WebPage) Write() error {
-	if err := wp.close(); err != nil {
-		return err
-	}
-
-	return ioutil.WriteFile(wp.absolutePath, []byte(wp.content.String()), 0644)
-}
-
-// LabelImages takes all the <img> in an .html document and adds
-// an "alt" attribute if it is missing.
-func (wp *WebPage) LabelImages(client *api.Client) error {
-	if err := wp.open(); err != nil {
-		return err
-	}
-
-	defer wp.close()
-
-	tokenizer := html.NewTokenizer(wp.file)
-
-	for {
-		switch tokenType := tokenizer.Next(); tokenType {
-
-		case html.ErrorToken:
-			if tokenizer.Err() == io.EOF {
-				return nil
-			}
-			return tokenizer.Err()
-
-		case html.TextToken, html.StartTagToken, html.EndTagToken, html.DoctypeToken:
-			t := tokenizer.Token()
-			fmt.Fprintf(wp.content, t.String())
-
-		case html.SelfClosingTagToken: // might be <img/> tag
-			t := tokenizer.Token()
-
-			if t.DataAtom == atom.Img || t.DataAtom == atom.Image { // not sure what the difference is
-				imgTag, err := img.New(&t, wp.absolutePath, client)
-
-				if err != nil {
-					return err
-				}
-
-				fmt.Fprintf(wp.content, imgTag.String())
-
-				wp.Captions = append(wp.Captions, imgTag.Caption)
-			} else {
-				fmt.Fprintf(wp.content, t.String())
-			}
-		case html.CommentToken:
-			// ignore comments
-		default:
-			return fmt.Errorf("unknown type: %s", tokenizer.Token().String())
-		}
-	}
 }

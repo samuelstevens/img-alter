@@ -1,8 +1,6 @@
 package webpage
 
 import (
-	"io/ioutil"
-	"os"
 	"path/filepath"
 	"testing"
 )
@@ -48,66 +46,51 @@ func TestNewWebPage(t *testing.T) {
 	}
 }
 
-func TestCloseNoFile(t *testing.T) {
-	webpage, err := New("./test.html")
-
-	if err != nil {
-		t.Errorf("Constructor error: %s", err.Error())
+func TestLabelImages(t *testing.T) {
+	var labelFunc func(string, string) string = func(imgPath string, prevDescription string) string {
+		return "hello, world!"
 	}
 
-	testErr := webpage.close()
+	preHTML := "<html><head></head><body>"
+	postHTML := "</body></html>"
 
-	if testErr != nil {
-		t.Errorf("safe close error: %s; wanted none", testErr.Error())
+	cases := []struct {
+		html string
+		want string
+	}{
+		{
+			html: "<p>Hello!</p>",
+			want: "<p>Hello!</p>",
+		},
+		{
+			html: "<img src=\"hello.png\" />",
+			want: "<img alt=\"hello, world!\" src=\"hello.png\"/>",
+		},
+		{
+			html: "<img src=\"hello.png\" alt=\"hello, world!\"/>",
+			want: "<img alt=\"hello, world!\" src=\"hello.png\"/>",
+		},
+		{
+			html: "<script>var x = \"hello\"</script>",
+			want: "<script>var x = \"hello\"</script>",
+		},
 	}
 
-}
+	for _, c := range cases {
+		html := preHTML + c.html + postHTML
+		want := preHTML + c.want + postHTML
 
-func TestCloseTmpFile(t *testing.T) {
-	webpage, err := New("./test.html")
+		got, err := LabelImages(html, labelFunc)
 
-	if err != nil {
-		t.Errorf("Constructor error: %s", err.Error())
-	}
+		if err != nil {
 
-	tmpfile, err := ioutil.TempFile("", "example")
-	if err != nil {
-		t.Errorf("tmpfile error: %s", err.Error())
-	}
-	defer tmpfile.Close()
-	defer os.Remove(tmpfile.Name()) // clean up
+			t.Errorf("got error %s; wanted no error", err.Error())
 
-	webpage.file = tmpfile
+		}
 
-	testErr := webpage.close()
+		if got != want {
+			t.Errorf("LabelImages(%s) == %s, want %s", html, got, want)
+		}
 
-	if testErr != nil {
-		t.Errorf("safe close error: %s; wanted none", testErr.Error())
-	}
-}
-
-func TestCloseAlreadyClosed(t *testing.T) {
-	webpage, err := New("./test.html")
-
-	if err != nil {
-		t.Errorf("Constructor error: %s", err.Error())
-	}
-
-	tmpfile, err := ioutil.TempFile("", "example")
-	if err != nil {
-		t.Errorf("tmpfile error: %s", err.Error())
-	}
-	err = tmpfile.Close()
-	if err != nil {
-		t.Errorf("tmpfile error: %s", err.Error())
-	}
-	defer os.Remove(tmpfile.Name()) // clean up
-
-	webpage.file = tmpfile
-
-	testErr := webpage.close()
-
-	if testErr == nil {
-		t.Errorf("wanted 'already closed error', got none")
 	}
 }
